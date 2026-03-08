@@ -1049,10 +1049,16 @@ def create_mcp_server():
                     "reason": frag.get("reason", ""),
                 })
 
+            proto_dist = {}
+            for f in included:
+                p = f.get("prototype", "Unknown")
+                proto_dist[p] = proto_dist.get(p, 0) + 1
+
             last_opt = {
                 "context_sufficiency": f"{sufficiency:.0%}",
                 "selected": len(included),
                 "excluded": len(excluded),
+                "pailitao_vl_prototype_distribution": proto_dist,
                 "fragments_selected": selected_summary,
                 "fragments_excluded": excluded_summary,
             }

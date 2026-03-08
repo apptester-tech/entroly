@@ -121,6 +121,7 @@ struct FragmentScore {
     feedback_mult: f64,
     dep_boost: f64,
     criticality: String,
+    prototype_name: String,
     composite: f64,
     reason: String,
 }
@@ -389,13 +390,64 @@ impl EntrolyEngine {
                 .map(|fid| (fid.clone(), self.feedback.learned_value(fid)))
                 .collect();
 
-            let frags: Vec<ContextFragment> = self.fragments.values().cloned().collect();
+            let mut frags: Vec<ContextFragment> = self.fragments.values().cloned().collect();
             let weights = ScoringWeights {
                 recency: self.w_recency,
                 frequency: self.w_frequency,
                 semantic: self.w_semantic,
                 entropy: self.w_entropy,
             };
+
+            // ── Pailitao-VL Paradigm: Compare-and-Calibrate Listwise Reranking ──
+            // Evolve from isolated pointwise evaluation to chunk-based compare-and-calibrate policy.
+            // We group by Semantic Prototype and penalize redundant candidates via Marginal Utility.
+            {
+                let lambda = 0.35; // aggressive penalty for intra-prototype redundancy
+                
+                // Group by prototype
+                let mut chunks: std::collections::HashMap<u8, Vec<usize>> = std::collections::HashMap::new();
+                for (i, f) in frags.iter().enumerate() {
+                    chunks.entry(f.prototype_id).or_default().push(i);
+                }
+                
+                // Precalculate pointwise scores so we have O(1) access
+                let mut pointwise_scores: Vec<f64> = vec![0.0; frags.len()];
+                for i in 0..frags.len() {
+                    let fm = feedback_mults.get(&frags[i].fragment_id).copied().unwrap_or(1.0);
+                    pointwise_scores[i] = compute_relevance(&frags[i], weights.recency, weights.frequency, weights.semantic, weights.entropy, fm);
+                }
+
+                for (_proto, chunk_indices) in chunks {
+                    // Only calibrate if there is >1 fragment competing for this prototype
+                    if chunk_indices.len() > 1 {
+                        let chunk_avg_entropy = chunk_indices.iter().map(|&idx| frags[idx].entropy_score).sum::<f64>() / chunk_indices.len() as f64;
+
+                        for &i in &chunk_indices {
+                            let mut redundancy_penalty = 0.0;
+                            for &j in &chunk_indices {
+                                if i != j {
+                                    // How similar are they?
+                                    let dist = hamming_distance(frags[i].simhash, frags[j].simhash);
+                                    let sim = (1.0 - (dist as f64 / 64.0)).max(0.0);
+                                    // Penalty is proportional to the other's score and similarity
+                                    redundancy_penalty += sim * pointwise_scores[j];
+                                }
+                            }
+                            
+                            // Apply penalty to the semantic score (which drives Knapsack inclusion)
+                            // We don't touch entropy because that's intrinsic density.
+                            frags[i].semantic_score = (frags[i].semantic_score - lambda * redundancy_penalty).max(0.0);
+                            
+                            // NEW: Ebbiforge Episodic Curiosity / Surprise
+                            // If this fragment's entropy is exceptionally high compared to the chunk average,
+                            // boost its recency (retention) because it's a surprising/anomalous piece of code.
+                            if frags[i].entropy_score > chunk_avg_entropy + 0.2 {
+                                frags[i].recency_score = (frags[i].recency_score + 0.2).min(1.0);
+                            }
+                        }
+                    }
+                }
+            }
 
             // ── Pass 1: Initial knapsack selection ──
             let result1 = knapsack_optimize(&frags, effective_budget, &weights, &feedback_mults);
@@ -581,6 +633,17 @@ impl EntrolyEngine {
                     "budget exceeded".to_string()
                 };
 
+                let proto_name = match frag.prototype_id {
+                    1 => "DomainLogic",
+                    2 => "UIComponent",
+                    3 => "Test",
+                    4 => "Config",
+                    5 => "Database",
+                    6 => "Docs",
+                    7 => "ApiRoute",
+                    _ => "Unknown",
+                };
+
                 fragment_scores.push(FragmentScore {
                     fragment_id: frag.fragment_id.clone(),
                     source: frag.source.clone(),
@@ -592,6 +655,7 @@ impl EntrolyEngine {
                     feedback_mult: fm,
                     dep_boost: db,
                     criticality: format!("{:?}", crit),
+                    prototype_name: proto_name.to_string(),
                     composite,
                     reason,
                 });
@@ -861,6 +925,7 @@ impl EntrolyEngine {
                 scores.set_item("feedback_mult", (fs.feedback_mult * 10000.0).round() / 10000.0)?;
                 scores.set_item("dep_boost", (fs.dep_boost * 10000.0).round() / 10000.0)?;
                 scores.set_item("criticality", &fs.criticality)?;
+                d.set_item("prototype", &fs.prototype_name)?;
                 scores.set_item("composite", (fs.composite * 10000.0).round() / 10000.0)?;
                 d.set_item("scores", scores)?;
                 d.set_item("reason", &fs.reason)?;

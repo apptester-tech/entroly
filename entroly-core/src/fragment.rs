@@ -50,8 +50,13 @@ pub struct ContextFragment {
     #[serde(default)]
     pub skeleton_content: Option<String>,
     #[pyo3(get, set)]
-    #[serde(default)]
     pub skeleton_token_count: Option<u32>,
+
+    // Pailitao-VL Semantic Prototype Anchor
+    // 0=Unknown, 1=DomainLogic, 2=UIComponent, 3=Test, 4=Config, 5=Database, 6=Docs, 7=ApiRoute
+    #[pyo3(get, set)]
+    #[serde(default)]
+    pub prototype_id: u8,
 }
 
 #[pymethods]
@@ -80,8 +85,46 @@ impl ContextFragment {
             simhash: 0,
             skeleton_content: None,
             skeleton_token_count: None,
+            prototype_id: assign_prototype(&source, &content),
         }
     }
+}
+
+/// Heuristically map a fragment to one of 8 global semantic prototypes.
+/// This acts as the anchor for Pailitao-VL listwise comparison.
+pub fn assign_prototype(source: &str, content: &str) -> u8 {
+    let src = source.to_lowercase();
+    
+    // 3 = Test
+    if src.contains("test") || src.contains("spec.") || src.starts_with("tests/") {
+        return 3;
+    }
+    // 2 = UIComponent
+    if src.ends_with(".tsx") || src.ends_with(".jsx") || src.ends_with(".vue") || src.ends_with(".svelte") || src.ends_with(".css") {
+        return 2;
+    }
+    // 4 = Config
+    if src.ends_with(".json") || src.ends_with(".toml") || src.ends_with(".yaml") || src.ends_with(".yml") || src.contains("config") {
+        return 4;
+    }
+    // 6 = Docs
+    if src.ends_with(".md") || src.ends_with(".txt") {
+        return 6;
+    }
+    // 5 = Database/Model
+    if src.contains("models/") || src.contains("db/") || src.contains("schema") || src.contains("migrations/") || content.contains("CREATE TABLE") {
+        return 5;
+    }
+    // 7 = ApiRoute
+    if src.contains("api/") || src.contains("routes/") || src.contains("controllers/") {
+        return 7;
+    }
+    // 1 = DomainLogic (fallback for code files)
+    if src.ends_with(".rs") || src.ends_with(".py") || src.ends_with(".ts") || src.ends_with(".js") || src.ends_with(".go") || src.ends_with(".java") || src.ends_with(".cpp") || src.ends_with(".c") {
+        return 1;
+    }
+    // 0 = Unknown
+    0
 }
 
 /// Compute composite relevance score for a fragment.

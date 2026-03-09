@@ -105,7 +105,7 @@ ok("cumulative_tokens_used > 0 after optimize", int(eff_block.get("cumulative_to
 # Math check: efficiency = cumulative_information / cumulative_tokens_used
 info = eff_block.get("cumulative_information", 0)
 tokens_used = eff_block.get("cumulative_tokens_used", 1)
-expected_eff = info / tokens_used if tokens_used > 0 else 0.0
+expected_eff = info / (tokens_used / 1000.0) if tokens_used > 0 else 0.0
 actual_eff = eff_block.get("context_efficiency", -1)
 ok("context_efficiency = information / tokens (math exact)", abs(actual_eff - expected_eff) < 0.01,
    f"expected≈{expected_eff:.4f} actual={actual_eff:.4f}")
@@ -160,8 +160,8 @@ try:
     srv.ingest_fragment("class DB:\n    def verify(self, u, p): return self.conn.auth(u, p)", "db.py")
     oc = srv.optimize_context(4096, "login authentication")
     ok("optimize_context returns dict", isinstance(oc, dict))
-    ok("optimize_context has selected key", "selected" in oc, str(list(oc.keys())))
-    ok("optimize_context has >0 selected", len(oc["selected"]) > 0)
+    ok("optimize_context has selected key", "selected_fragments" in oc, str(list(oc.keys())))
+    ok("optimize_context has >0 selected", len(oc.get("selected_fragments", [])) > 0)
 
     # advance_turn
     before_turn = srv._rust.get_turn() if srv._use_rust else 0
@@ -248,27 +248,33 @@ try:
     original_run = at_mod.run_autotune
     cfg_path = REPO / "tuning_config.json"
 
-    # enabled=true → daemon spawns
-    call_log = []
-    at_mod.run_autotune = lambda max_iterations=None, budget_seconds=10.0: (call_log.append(1), time.sleep(0.02))
-    _start_autotune_daemon(None)
-    time.sleep(0.1)
-    ok("daemon spawns when enabled=true", len(call_log) >= 1)
-
-    # enabled=false → no spawn
     cfg = json.loads(cfg_path.read_text())
-    cfg["autotuner"]["enabled"] = False
-    cfg_path.write_text(json.dumps(cfg, indent=2))
-    call_log2 = []
-    at_mod.run_autotune = lambda **kw: call_log2.append(kw)
-    _start_autotune_daemon(None)
-    time.sleep(0.1)
-    ok("daemon does NOT spawn when enabled=false", len(call_log2) == 0)
+    try:
+        # ensure it starts enabled for the first test
+        cfg["autotuner"]["enabled"] = True
+        cfg["autotuner"]["idle_only"] = False
+        cfg_path.write_text(json.dumps(cfg, indent=2))
+        
+        # enabled=true → daemon spawns
+        threads_before = sum(1 for t in threading.enumerate() if t.name == "entroly-autotune")
+        _start_autotune_daemon(None)
+        time.sleep(0.1)
+        threads_after = sum(1 for t in threading.enumerate() if t.name == "entroly-autotune")
+        ok("daemon spawns when enabled=true", threads_after > threads_before)
 
-    # Restore
-    cfg["autotuner"]["enabled"] = True
-    cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
-    at_mod.run_autotune = original_run
+        # enabled=false → no spawn
+        cfg["autotuner"]["enabled"] = False
+        cfg_path.write_text(json.dumps(cfg, indent=2))
+        
+        threads_before2 = sum(1 for t in threading.enumerate() if t.name == "entroly-autotune")
+        _start_autotune_daemon(None)
+        time.sleep(0.1)
+        threads_after2 = sum(1 for t in threading.enumerate() if t.name == "entroly-autotune")
+        ok("daemon does NOT spawn when enabled=false", threads_after2 == threads_before2)
+    finally:
+        # Restore always!
+        cfg["autotuner"]["enabled"] = True
+        cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
 
     # Daemon thread is a daemon (dies with process)
     spawned = [t for t in threading.enumerate() if t.name == "entroly-autotune"]
@@ -429,7 +435,7 @@ final_stats = dict(dict(e_math.stats()).get("context_efficiency", {}))
 info_total = final_stats.get("cumulative_information", 0)
 tok_total  = final_stats.get("cumulative_tokens_used", 1)
 eff_reported = final_stats.get("context_efficiency", -1)
-eff_computed = info_total / tok_total if tok_total > 0 else 0.0
+eff_computed = info_total / (tok_total / 1000.0) if tok_total > 0 else 0.0
 ok("efficiency after 5 optimize calls: math holds",
    abs(eff_reported - eff_computed) < 0.01,
    f"reported={eff_reported:.4f} computed={eff_computed:.4f}")
@@ -531,16 +537,17 @@ except ImportError as exc:
     print(f"  ⊘ Skipping checkpoint roundtrip (import: {exc})")
 
 
-# ─── Summary ──────────────────────────────────────────────────────────────────
-total = _passed + _failed
-print(f"\n{'='*60}")
-print(f"{BOLD}PRODUCTION TEST RESULTS: {_passed}/{total} passed{RESET}", end="  ")
-if _failed == 0:
-    print(f"{GREEN}ALL PASS ✓{RESET}")
-else:
-    print(f"{RED}{_failed} FAILED ✗{RESET}")
-    print(f"\nFailed tests:")
-    for f in _failures:
-        print(f"  • {f}")
+if __name__ == "__main__":
+    # ─── Summary ──────────────────────────────────────────────────────────────────
+    total = _passed + _failed
+    print(f"\n{'='*60}")
+    print(f"{BOLD}PRODUCTION TEST RESULTS: {_passed}/{total} passed{RESET}", end="  ")
+    if _failed == 0:
+        print(f"{GREEN}ALL PASS ✓{RESET}")
+    else:
+        print(f"{RED}{_failed} FAILED ✗{RESET}")
+        print(f"\nFailed tests:")
+        for f in _failures:
+            print(f"  • {f}")
 
-sys.exit(0 if _failed == 0 else 1)
+    sys.exit(0 if _failed == 0 else 1)

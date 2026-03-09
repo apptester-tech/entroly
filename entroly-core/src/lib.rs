@@ -36,9 +36,8 @@ use entropy::{information_score, shannon_entropy, normalized_entropy, boilerplat
 use dedup::{simhash, hamming_distance, DedupIndex};
 use depgraph::{DepGraph, extract_identifiers};
 use guardrails::{file_criticality, has_safety_signal, TaskType, FeedbackTracker, Criticality, compute_ordering_priority, criticality_boost};
-use lsh::{LshIndex, ContextScorer};
 use prism::PrismOptimizer;
-use query::{analyze_query as query_analyze, refine_heuristic as query_refine};
+
 
 /// Process-wide monotonic counter — used only to seed each engine's instance_id.
 /// Guarantees every EntrolyEngine instance gets a unique prefix, making
@@ -188,10 +187,12 @@ impl EntrolyEngine {
     pub fn advance_turn(&mut self) {
         self.current_turn += 1;
 
-        // Apply decay in-place (no drain/rebuild)
-        let decay_rate = (2.0_f64).ln() / self.decay_half_life.max(1) as f64;
+        // Apply Ebbinghaus decay in-place with per-fragment salience.
+        // Matches fragment::apply_ebbinghaus_decay: effective_half_life = half_life * salience.
         for frag in self.fragments.values_mut() {
             let dt = self.current_turn.saturating_sub(frag.turn_last_accessed) as f64;
+            let effective_half_life = (self.decay_half_life as f64 * frag.salience).max(1.0);
+            let decay_rate = (2.0_f64).ln() / effective_half_life;
             frag.recency_score = (-decay_rate * dt).exp();
         }
 
@@ -1443,6 +1444,13 @@ fn py_analyze_health_info() -> String {
     "{\"info\":\"Call engine.analyze_health() to get a full HealthReport for the current session.\"}".to_string()
 }
 
+/// Extract a structural skeleton from source code.
+/// Returns the skeleton string, or an empty string if extraction failed.
+#[pyfunction]
+fn extract_skeleton(content: &str, source: &str) -> String {
+    skeleton::extract_skeleton(content, source).unwrap_or_default()
+}
+
 // ─── Extra standalone wrappers for direct test/utility access ────────────────
 
 /// Cross-fragment redundancy: how much of `text` is already covered by `others` [0,1].
@@ -1534,11 +1542,12 @@ fn entroly_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // ── Knapsack / Ebbinghaus
     m.add_function(wrap_pyfunction!(py_knapsack_optimize, m)?)?;
     m.add_function(wrap_pyfunction!(py_apply_ebbinghaus_decay, m)?)?;
-    // ── SAST / Health / Query
+    // ── SAST / Health / Query / Skeleton
     m.add_function(wrap_pyfunction!(py_scan_content, m)?)?;
     m.add_function(wrap_pyfunction!(py_analyze_health_info, m)?)?;
     m.add_function(wrap_pyfunction!(py_analyze_query, m)?)?;
     m.add_function(wrap_pyfunction!(py_refine_heuristic, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_skeleton, m)?)?;
     Ok(())
 }
 

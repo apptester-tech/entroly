@@ -10,13 +10,13 @@
 Every AI coding tool manages context with dumb FIFO truncation — stuffing tokens until the window is full, then cutting from the top. Entroly applies mathematics to select the **optimal** context subset.
 
 ```bash
-pip install entroly
+pip install entroly[native]
 ```
 
 ## Zero-Friction Setup
 
 ```bash
-pip install entroly
+pip install entroly[native]
 cd your-project
 entroly init        # auto-detects Cursor / VS Code / Windsurf / Claude Desktop
                     # writes the correct MCP config in one command
@@ -32,7 +32,7 @@ entroly dashboard   # show live ROI metrics (cost saved, latency, compression)
 
 ## Architecture
 
-Hybrid Rust + Python: CPU-intensive math (knapsack DP, entropy, SimHash, LSH, dependency graph) runs in Rust via PyO3 for 50-100x speedup. MCP protocol and orchestration run in Python via FastMCP. Pure Python fallbacks activate automatically if the Rust extension isn't available.
+Hybrid Rust + Python: CPU-intensive math (knapsack DP, entropy, SimHash, LSH, dependency graph) runs in Rust via PyO3 for 50-100x speedup. MCP protocol and orchestration run in Python via FastMCP. The Rust extension (`entroly-core`) is required — install with `pip install entroly[native]`.
 
 ## What It Does
 
@@ -126,8 +126,8 @@ recall_relevant(query="database connection pooling", top_k=5)
 Feed the Wilson score feedback loop. Adjusts fragment scoring multipliers in the range [0.5, 2.0].
 
 ```
-record_outcome(fragment_ids=["a1b2c3", "d4e5f6"], success=true)
-→ {"status": "recorded", "fragments_updated": 2}
+record_outcome(fragment_ids="a1b2c3,d4e5f6", success=true)
+→ {"status": "recorded", "outcome": "success", "fragment_ids": ["a1b2c3", "d4e5f6"]}
 ```
 
 ### `explain_context`
@@ -182,24 +182,24 @@ Full product-owner dashboard with live ROI from the running session. Shows real 
 ```
 entroly_dashboard()
 → {
-    "💰 money": {
+    "money": {
       "cost_per_call_without_entroly": "$0.0115",
       "cost_per_call_with_entroly":    "$0.0044",
       "savings_pct": "62%",
       "insight": "Each optimize call costs $0.0044 instead of $0.0115. Over 38 calls, that's $0.27 saved."
     },
-    "⚡ performance": {
+    "performance": {
       "avg_optimize_latency": "320µs (0.32ms)",
       "vs_api_roundtrip":     "6250x faster than a typical API call"
     },
-    "🧠 bloat_prevention": {
+    "bloat_prevention": {
       "context_compression": "39.00%",
       "memory_footprint":    "612 KB",
       "duplicates_caught":   "12"
     },
-    "🎯 selection_quality": { "information_density": "0.8840 bits/token" },
-    "🔒 safety":            { "persistent_index": "active" },
-    "📊 last_optimization": { "context_sufficiency": "91%", "selected": 14, "excluded": 128 }
+    "selection_quality": { "information_density": "0.8840 bits/token" },
+    "safety":            { "persistent_index": "active" },
+    "last_optimization": { "context_sufficiency": "91%", "selected": 14, "excluded": 128 }
   }
 ```
 
@@ -308,14 +308,14 @@ EntrolyConfig(
 - Dantzig (1957) — Greedy Knapsack Approximation
 - Wilson (1927) — Score Confidence Intervals
 - ICPC (arXiv 2025) — In-context Prompt Compression
-- Proximity (arXiv 2026) — LSH-bucketed Semantic Caching
+- Proximity (arXiv 2025) — LSH-bucketed Semantic Caching
 - RCC (ICLR 2025) — Recurrent Context Compression
-- ILRe (ICLR 2026) — Intermediate Layer Retrieval
+- ILRe (arXiv 2025) — Intermediate Layer Retrieval
 - Agentic Plan Caching (arXiv 2025)
 
 ## Part of the Ebbiforge Ecosystem
 
-Entroly integrates with [hippocampus-sharp-memory](https://pypi.org/project/hippocampus-sharp-memory/) for persistent memory and [Ebbiforge](https://pypi.org/project/ebbiforge/) for TF embeddings and RL weight learning. Both are optional — Entroly works standalone with pure Python fallbacks.
+Entroly integrates with [hippocampus-sharp-memory](https://pypi.org/project/hippocampus-sharp-memory/) for persistent memory and [Ebbiforge](https://pypi.org/project/ebbiforge/) for TF embeddings and RL weight learning. Both are optional — Entroly works standalone.
 
 ## License
 

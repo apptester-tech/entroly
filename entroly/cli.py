@@ -115,7 +115,6 @@ def _generate_mcp_config() -> dict:
         "entroly": {
             "command": "entroly",
             "args": ["serve"],
-            "env": {},
         }
     }
 

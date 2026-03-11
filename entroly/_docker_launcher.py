@@ -88,31 +88,34 @@ def launch() -> None:
         except KeyboardInterrupt:
             sys.exit(0)
     else:
-        # No Rust engine, no Docker — give clear instructions
-        print(
-            "=" * 65,
-            "",
-            "  entroly: Rust engine (entroly-core) is not installed,",
-            "  and Docker is not available.",
-            "",
-            "  To use entroly, choose one of these options:",
-            "",
-            "  Option 1 — Install with native Rust engine (recommended):",
-            "      pip install entroly[native]",
-            "",
-            "  Option 2 — Build from source:",
-            "      git clone https://github.com/juyterman1000/entroly",
-            "      cd entroly/entroly-core",
-            "      pip install maturin && maturin develop --release",
-            "      cd .. && pip install -e .",
-            "",
-            "  Option 3 — Use Docker:",
-            "      Install Docker Desktop, then run: entroly serve",
-            "",
-            "=" * 65,
-            sep="\n",
-            file=sys.stderr,
-        )
+        # No Rust engine, no Docker — give clear, beautiful instructions
+        R = "\033[0m"     # Reset
+        B = "\033[1m"     # Bold
+        RED = "\033[91m"
+        CYN = "\033[96m"
+        GRY = "\033[90m"
+        YLW = "\033[93m"
+
+        print(f"""
+  {RED}{B}✗ entroly cannot start{R}
+
+  {GRY}The Rust engine (entroly-core) is not installed,{R}
+  {GRY}and Docker is not available.{R}
+
+  {B}Choose one:{R}
+
+  {YLW}1.{R} Install the prebuilt Rust engine {GRY}(fastest){R}
+     {CYN}pip install entroly-core{R}
+
+  {YLW}2.{R} Build from source
+     {CYN}git clone https://github.com/juyterman1000/entroly{R}
+     {CYN}cd entroly/entroly-core{R}
+     {CYN}pip install maturin && maturin develop --release{R}
+     {CYN}cd .. && pip install -e .{R}
+
+  {YLW}3.{R} Use Docker {GRY}(zero build required){R}
+     {GRY}Install Docker Desktop, then run:{R} {CYN}entroly serve{R}
+""", file=sys.stderr)
         sys.exit(1)
 
 

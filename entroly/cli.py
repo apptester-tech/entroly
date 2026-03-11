@@ -200,15 +200,25 @@ def cmd_init(args):
   {C.GRAY}Call {C.CYAN}entroly_dashboard{C.GRAY} from your AI to see live value metrics.{C.RESET}
 """)
 
+    # Post-init health check: warn if entroly-core is missing
+    try:
+        import entroly_core  # noqa: F401
+    except ImportError:
+        print(f"""
+  {C.YELLOW}⚠  entroly-core (Rust engine) is not installed.{C.RESET}
+  {C.GRAY}The MCP server needs it to run. Install it:{C.RESET}
+
+  {C.CYAN}pip install entroly-core{C.RESET}          {C.GRAY}# prebuilt wheel (if available){C.RESET}
+  {C.GRAY}— or build from source —{C.RESET}
+  {C.CYAN}pip install maturin{C.RESET}
+  {C.CYAN}cd entroly-core && maturin develop --release{C.RESET}
+""")
+
 
 def cmd_serve(args):
     """entroly serve — start MCP server with auto-indexing."""
-    # Set env so Docker launcher knows to go native
-    os.environ["ENTROLY_NO_DOCKER"] = "1"
-
-    # Import and run
-    from entroly.server import main
-    main()
+    from entroly._docker_launcher import launch
+    launch()
 
 
 def cmd_demo(args):
@@ -234,8 +244,19 @@ def cmd_demo(args):
 
 def cmd_dashboard(args):
     """entroly dashboard — show value metrics from current session."""
-    from entroly.server import EntrolyEngine
-    from entroly.auto_index import auto_index
+    try:
+        from entroly.server import EntrolyEngine
+        from entroly.auto_index import auto_index
+    except ImportError:
+        print(f"""
+  {C.RED}❌ Cannot start dashboard — entroly-core is not installed.{C.RESET}
+
+  {C.GRAY}Install the Rust engine first:{C.RESET}
+  {C.CYAN}pip install entroly-core{C.RESET}          {C.GRAY}# prebuilt wheel{C.RESET}
+  {C.GRAY}— or —{C.RESET}
+  {C.CYAN}pip install maturin && cd entroly-core && maturin develop --release{C.RESET}
+""")
+        return
 
     print(f"\n{C.CYAN}{C.BOLD}  🔬 Entroly Dashboard{C.RESET}\n")
 

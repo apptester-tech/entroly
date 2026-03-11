@@ -41,7 +41,7 @@ COPY bench/ /app/bench/
 COPY tuning_strategies/ /app/tuning_strategies/
 
 # tuning_config.json = live config mutated by the autotuner
-COPY tuning_config.json /app/
+COPY entroly/tuning_config.json /app/
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 # Included so 'docker run entroly pytest tests/' works for CI validation
@@ -51,8 +51,7 @@ COPY tests/ /app/tests/
 COPY npm/ /app/npm/
 
 # ── Demo scripts ─────────────────────────────────────────────────────────────
-COPY demo_value.py /app/
-COPY functional_test.py /app/
+COPY examples/ /app/examples/
 
 # ── Environment ───────────────────────────────────────────────────────────────
 # Make entroly and bench importable as packages

@@ -90,8 +90,14 @@ def launch() -> None:
     if _docker_available():
         _pull_image()
 
+        cwd = os.getcwd()
         cmd = [
             "docker", "run", "--rm", "-i",
+            # Mount user's project into the container
+            "-v", f"{cwd}:/workspace",
+            "-w", "/workspace",
+            # Tell the server where the project is
+            "-e", "ENTROLY_PROJECT_DIR=/workspace",
             *_env_passthrough(),
             DOCKER_IMAGE,
         ]

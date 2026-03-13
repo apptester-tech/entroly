@@ -1,14 +1,14 @@
 """
-entroly launcher — smart entry point with graceful fallback.
+entroly launcher — Docker-first MCP server entry point.
 
-Priority order:
-  1. If ENTROLY_NO_DOCKER=1 or inside Docker → run native Python server
-  2. If entroly-core is installed locally → run native (no Docker needed)
-  3. If Docker is available → pull and run the container
+For Mac and Windows developers, Docker Desktop is the intended runtime.
+The Rust engine runs inside the container — no local compilation needed.
+
+Fallback chain:
+  1. If already inside Docker (/.dockerenv) → run native Python server
+  2. If ENTROLY_NO_DOCKER=1 and entroly-core installed → run native
+  3. If Docker is available → pull + run container (mounts project CWD)
   4. Otherwise → show clear install instructions and exit
-
-This ensures `pip install entroly && entroly serve` gives a useful
-experience no matter what's installed.
 """
 
 from __future__ import annotations
@@ -17,14 +17,12 @@ import os
 import subprocess
 import sys
 
-
 DOCKER_IMAGE = "ghcr.io/juyterman1000/entroly:latest"
 
 
 def _docker_available() -> bool:
-    """Check if Docker is installed and the daemon is reachable."""
+    """Check if Docker daemon is reachable."""
     try:
-        # First check: can we reach the Docker daemon?
         result = subprocess.run(
             ["docker", "info"],
             stdout=subprocess.DEVNULL,
@@ -33,70 +31,65 @@ def _docker_available() -> bool:
         )
         if result.returncode == 0:
             return True
-
-        # Fallback: Docker installed but daemon needs permissions?
-        # 'docker version' may exit non-zero but still print client version.
+        # Fallback: client exists but daemon needs permissions
         result = subprocess.run(
             ["docker", "version", "--format", "{{.Client.Version}}"],
             capture_output=True,
             text=True,
             check=False,
         )
-        # If we got any version string in stdout, Docker client is present
         return bool(result.stdout.strip())
     except FileNotFoundError:
         return False
 
 
-def _rust_engine_available() -> bool:
-    """Check if entroly-core (Rust engine) is importable."""
-    try:
-        import entroly_core  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
 def _pull_image() -> None:
-    """Pull (or update) the entroly Docker image silently."""
+    """Pull the latest entroly image silently (uses cache if offline)."""
     subprocess.run(
         ["docker", "pull", DOCKER_IMAGE],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
-        check=False,  # don't crash if offline and image is cached
+        check=False,
     )
 
 
 def _run_native() -> None:
-    """Run the local Python MCP server (native mode)."""
+    """Run the MCP server in-process (inside Docker or with local engine)."""
     from entroly.server import main  # noqa: PLC0415
     main()
 
 
+def _env_passthrough() -> list[str]:
+    """Forward ENTROLY_* environment variables into the Docker container."""
+    args: list[str] = []
+    for key, value in os.environ.items():
+        if key.startswith("ENTROLY_"):
+            args += ["-e", f"{key}={value}"]
+    return args
+
+
 def launch() -> None:
-    """Main entry point — tries native first, then Docker, then helpful error."""
+    """Main entry point."""
 
-    # If explicitly set to no-docker or already inside Docker, go native
-    if os.environ.get("ENTROLY_NO_DOCKER") or os.path.exists("/.dockerenv"):
+    # Already inside Docker → go native directly
+    if os.path.exists("/.dockerenv"):
         _run_native()
         return
 
-    # If Rust engine is installed locally, run native (best experience)
-    if _rust_engine_available():
+    # Explicit override → go native (requires entroly-core installed)
+    if os.environ.get("ENTROLY_NO_DOCKER"):
         _run_native()
         return
 
-    # Try Docker
+    # Docker path — the primary experience for Mac/Windows
     if _docker_available():
         _pull_image()
 
         cwd = os.getcwd()
         cmd = [
             "docker", "run", "--rm", "-i",
-            # Mount user's project into the container
-            "-v", f"{cwd}:/workspace",
+            "-v", f"{cwd}:/workspace",   # mount project files
             "-w", "/workspace",
-            # Tell the server where the project is
             "-e", "ENTROLY_PROJECT_DIR=/workspace",
             *_env_passthrough(),
             DOCKER_IMAGE,
@@ -107,47 +100,28 @@ def launch() -> None:
             sys.exit(result.returncode)
         except KeyboardInterrupt:
             sys.exit(0)
-    else:
-        # No Rust engine, no Docker — give clear, beautiful instructions
-        R = "\033[0m"     # Reset
-        B = "\033[1m"     # Bold
-        RED = "\033[91m"
-        CYN = "\033[96m"
-        GRY = "\033[90m"
-        YLW = "\033[93m"
+        return
 
-        print(f"""
-  {RED}{B}✗ entroly cannot start{R}
+    # No Docker — clear, actionable message
+    R  = "\033[0m"
+    B  = "\033[1m"
+    RED = "\033[91m"
+    CYN = "\033[96m"
+    GRY = "\033[90m"
+    YLW = "\033[93m"
 
-  {GRY}The Rust engine (entroly-core) is not installed,{R}
-  {GRY}and Docker is not available.{R}
+    print(f"""
+  {RED}{B}✗ entroly cannot start — Docker is not running{R}
 
-  {B}Choose one:{R}
+  {B}Quick fix (Mac / Windows):{R}
+  {YLW}1.{R} Open Docker Desktop (or install from {CYN}https://docker.com/products/docker-desktop{R})
+  {YLW}2.{R} Wait for the Docker icon to show "Running"
+  {YLW}3.{R} Run: {CYN}entroly serve{R}
+     {GRY}Entroly auto-detects Docker — no build required.{R}
 
-  {YLW}1.{R} Install Docker Desktop {GRY}(recommended for Mac/Windows){R}
-     {GRY}Download from{R} {CYN}https://docker.com/products/docker-desktop{R}
-     {GRY}Then just run:{R} {CYN}entroly serve{R}
-     {GRY}(Entroly auto-detects Docker — zero build required){R}
-
-  {YLW}2.{R} Install the prebuilt Rust engine
-     {CYN}pip install entroly-core{R}
-
-  {YLW}3.{R} Build from source
-     {CYN}git clone https://github.com/juyterman1000/entroly{R}
-     {CYN}cd entroly/entroly-core{R}
-     {CYN}pip install maturin && maturin develop --release{R}
-     {CYN}cd .. && pip install -e .{R}
+  {GRY}Linux users:{R} {CYN}pip install entroly-core{R}  {GRY}# prebuilt Rust wheel{R}
 """, file=sys.stderr)
-        sys.exit(1)
-
-
-def _env_passthrough() -> list[str]:
-    """Forward ENTROLY_* environment variables into the container."""
-    args: list[str] = []
-    for key, value in os.environ.items():
-        if key.startswith("ENTROLY_"):
-            args += ["-e", f"{key}={value}"]
-    return args
+    sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -152,11 +152,38 @@ def _write_config(tool: dict, dry_run: bool = False) -> str:
     return config_path
 
 
+def _check_for_updates() -> None:
+    """Check PyPI for a newer version of entroly (non-blocking)."""
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+        import urllib.request
+        
+        try:
+            current_version = version("entroly")
+        except PackageNotFoundError:
+            return  # Not installed via pip
+
+        req = urllib.request.Request(
+            "https://pypi.org/pypi/entroly/json",
+            headers={"User-Agent": f"entroly-cli/{current_version}"}
+        )
+        with urllib.request.urlopen(req, timeout=1.5) as response:
+            data = json.loads(response.read().decode())
+            latest = data["info"]["version"]
+            
+            if latest != current_version:
+                print(f"  {C.YELLOW}⚠ Update available:{C.RESET} {current_version} → {C.BOLD}{latest}{C.RESET}")
+                print(f"  {C.GRAY}Run:{C.RESET} {C.CYAN}pip install --upgrade entroly{C.RESET}\n")
+    except Exception:
+        pass  # Silently fail if offline or timeout
+
+
 def cmd_init(args):
     """entroly init — auto-detect and configure."""
     print(f"""
 {C.CYAN}{C.BOLD}  🔬 Entroly — Context Optimizer for AI Coding Agents{C.RESET}
 """)
+    _check_for_updates()
 
     # Detect project
     project = _detect_project_type()

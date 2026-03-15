@@ -4,8 +4,6 @@ name: Publish entroly-core wheels to PyPI
 # This ensures `pip install "entroly[native]"` always gets the latest Rust engine.
 #
 # Triggers on version tags (entroly-v*) — same as the Docker/PyPI workflow.
-# Uses PyO3/maturin-action for cross-platform builds (linux x86_64, aarch64,
-# macOS universal2, Windows x86_64).
 
 on:
   push:
@@ -20,7 +18,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64
+          - os: ubuntu-latest
+            target: aarch64
+          - os: macos-latest
+            target: universal2-apple-darwin
+          - os: windows-latest
+            target: x86_64
 
     steps:
       - uses: actions/checkout@v4
@@ -28,37 +34,23 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          working-directory: entroly-core
-          command: build
-          args: --release --out dist
-          # Build both x86_64 and aarch64 on Linux via cross-compilation
+          target: ${{ matrix.target }}
+          args: --release --out dist --manifest-path entroly-core/Cargo.toml
           manylinux: auto
-          target: ${{ matrix.os == 'ubuntu-latest' && 'x86_64' || '' }}
-
-      - name: Build aarch64 wheels (Linux only)
-        if: matrix.os == 'ubuntu-latest'
-        uses: PyO3/maturin-action@v1
-        with:
-          working-directory: entroly-core
-          command: build
-          args: --release --out dist
-          manylinux: auto
-          target: aarch64
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}
-          path: entroly-core/dist
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: dist
 
   publish-to-pypi:
     name: Publish entroly-core to PyPI
     needs: build-wheels
     runs-on: ubuntu-latest
-    # Only publish on actual version tags (not workflow_dispatch without a tag)
     if: startsWith(github.ref, 'refs/tags/entroly-v')
     permissions:
-      id-token: write  # required for trusted publishing (OIDC)
+      id-token: write
 
     steps:
       - name: Download all wheels
@@ -75,4 +67,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
-          skip-existing: true  # safe to retry if partial publish occurred
+          skip-existing: true

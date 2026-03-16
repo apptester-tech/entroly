@@ -20,14 +20,14 @@
 
 Every AI coding tool — Cursor, Copilot, Claude Code, Cody — manages context with dumb heuristics: stuff tokens until the window fills, then cut. Entroly uses mathematics to compress an **entire codebase** into the optimal context window, and then **learns** which types of context produce better outcomes.
 
-## 🛑 The Problem
+##  The Problem
 
 Current AI tools use **Cosine Similarity** (Vector Search). It's great for finding "things that look like my query," but terrible for coding because:
 1. **Context Blindness**: Finds "the top 5 files" but misses the 6th file with the critical interface definition.
 2. **Boilerplate Waste**: 40% of retrieved code is often imports or repetitive boilerplate.
 3. **Static Heuristics**: Selection weights never improve — every session starts from zero.
 
-## ✅ The Solution: Entroly
+##  The Solution: Entroly
 
 Entroly replaces "dumb search" with **Information-Theoretic Compression + Online RL**. It treats the context window as a finite resource, uses principled combinatorial optimization to fill it, and learns better selection strategies from every session outcome.
 

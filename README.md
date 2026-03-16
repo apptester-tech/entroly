@@ -13,24 +13,25 @@
   <img src="https://img.shields.io/badge/Python-3.10+-blue?logo=python" alt="Python">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/PRs-Welcome-brightgreen" alt="PRs Welcome">
-  <img src="https://img.shields.io/badge/Tests-259%20Passing-success" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-113%20Passing-success" alt="Tests">
 </p>
 
 ---
 
-Every AI coding tool — Cursor, Copilot, Claude Code, Cody — manages context with dumb heuristics: stuff tokens until the window fills, then cut. Entroly uses mathematics to compress an **entire codebase** into the optimal context window.
+Every AI coding tool — Cursor, Copilot, Claude Code, Cody — manages context with dumb heuristics: stuff tokens until the window fills, then cut. Entroly uses mathematics to compress an **entire codebase** into the optimal context window, and then **learns** which types of context produce better outcomes.
 
 ## 🛑 The Problem
+
 Current AI tools use **Cosine Similarity** (Vector Search). It's great for finding "things that look like my query," but terrible for coding because:
-1. **Context Blindness**: It finds the "top 5 files" but missed the 6th file that contains the critical interface definition.
-2. **Boilerplate Waste**: 40% of retrieved code is often imports or repetitive boilerplate, wasting expensive tokens.
-3. **Correlation vs Causation**: Vector search finds *related* code, not *causally necessary* code.
+1. **Context Blindness**: Finds "the top 5 files" but misses the 6th file with the critical interface definition.
+2. **Boilerplate Waste**: 40% of retrieved code is often imports or repetitive boilerplate.
+3. **Static Heuristics**: Selection weights never improve — every session starts from zero.
 
 ## ✅ The Solution: Entroly
-Entroly replaces "dumb search" with **Information-Theoretic Compression**. It treats your context window as a finite resource and uses **Knapsack Optimization** to pack the most "informative" (highest entropy) and "causally relevant" (dependency-linked) fragments.
+
+Entroly replaces "dumb search" with **Information-Theoretic Compression + Online RL**. It treats the context window as a finite resource, uses principled combinatorial optimization to fill it, and learns better selection strategies from every session outcome.
 
 ---
-
 
 ```
 pip install entroly
@@ -38,21 +39,21 @@ pip install entroly
 
 ## How It's Different
 
-**Sourcegraph Cody** does *search*: "Find 5–10 files that look relevant." **Entroly** does *compression*: "Show the LLM the **entire codebase** at variable resolution."
+**Sourcegraph Cody** does *search*: "Find 5–10 files that look relevant." **Entroly** does *compression*: "Show the LLM the **entire codebase** at variable resolution — and learn what works."
 
 | | Cody / Copilot | Entroly |
 |--|----------------|---------|
-| **Approach** | Embedding similarity search | Information-theoretic compression |
-| **Coverage** | 5–10 files (the rest is invisible) | 100% codebase visible via 3-level hierarchy |
-| **Selection** | Top-K by cosine distance | Knapsack-optimal with submodular diversity |
+| **Approach** | Embedding similarity search | Information-theoretic compression + online RL |
+| **Coverage** | 5–10 files (the rest is invisible) | 100% codebase at variable resolution |
+| **Selection** | Top-K by cosine distance | KKT-optimal bisection with submodular diversity |
 | **Dedup** | None | SimHash + LSH in O(1) |
-| **Learning** | Static | Online Wilson-score feedback + autotune |
+| **Learning** | Static | REINFORCE with KKT-consistent baseline (first-order) |
 | **Security** | None | Built-in SAST (55 rules, taint-aware) |
-| **Temperature** | User-set or model default | Auto-calibrated via Fisher information |
+| **Temperature** | User-set | ADGT × PCNT self-calibrating (no tuning needed) |
 
 ## Architecture
 
-Hybrid Rust + Python. All math runs in Rust via PyO3 (50–100× faster). MCP protocol and orchestration run in Python. Pure Python fallbacks activate automatically if the Rust extension isn't available.
+Hybrid Rust + Python. All math runs in Rust via PyO3 (50–100× faster). MCP protocol and orchestration run in Python.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -67,7 +68,7 @@ Hybrid Rust + Python. All math runs in Rust via PyO3 (50–100× faster). MCP pr
 │  │          Entroly Engine (Python)             │        │
 │  │  ┌─────────────────────────────────────┐     │       │
 │  │  │  entroly-core (Rust via PyO3)       │     │       │
-│  │  │  14 modules · 330 KB · 93 tests     │     │       │
+│  │  │  15 modules · 340 KB · 113 tests    │     │       │
 │  │  └─────────────────────────────────────┘     │       │
 │  └──────────────────────────────────────────────┘       │
 └─────────────────────────────────────────────────────────┘
@@ -79,12 +80,14 @@ Two deployment modes:
 
 ## Engines
 
-### Rust Core (14 modules)
+### Rust Core (15 modules)
 
 | Module | What | How |
 |--------|------|-----|
 | **hierarchical.rs** | 3-level codebase compression (ECC) | L1: skeleton map of ALL files · L2: dep-graph cluster expansion · L3: knapsack-optimal full fragments with submodular diversity |
-| **knapsack.rs** | Optimal context subset selection | 0/1 Knapsack DP (N ≤ 2000) · greedy with Dantzig 0.5-guarantee (N > 2000) |
+| **knapsack.rs** | Optimal context subset selection | τ ≥ 0.05: exact KKT dual bisection O(30·N) · τ < 0.05: exact 0/1 DP O(N×1000) |
+| **knapsack_sds.rs** | IOS: Information-Optimal Selection | Submodular Diversity Selection (SDS) + Multi-Resolution Knapsack (MRK) in one greedy pass · (1−1/e) optimality guarantee |
+| **prism.rs** | Spectral weight optimizer (PRISM) | Exact Jacobi eigendecomposition of 4×4 gradient covariance · Q Λ⁻¹/² Qᵀ natural gradient · exposes condition_number() for PCNT |
 | **entropy.rs** | Information density scoring | Shannon entropy (40%) + boilerplate detection (30%) + cross-fragment n-gram redundancy (30%) |
 | **depgraph.rs** | Dependency graph + symbol table | Auto-linking: imports (1.0) · type refs (0.9) · function calls (0.7) · same-module (0.5) |
 | **skeleton.rs** | AST-lite code skeleton extraction | Preserves signatures, class/struct/trait layouts, strips bodies → 60–80% token reduction |
@@ -93,10 +96,9 @@ Two deployment modes:
 | **sast.rs** | Static Application Security Testing | 55 rules across 8 CWE categories · taint-flow analysis · severity scoring |
 | **health.rs** | Codebase health analysis | Clone detection (Type-1/2/3) · dead symbol finder · god file detector · arch violation checker |
 | **guardrails.rs** | Safety-critical file pinning | Criticality levels (Safety/Critical/Important/Normal) · task-aware budget multipliers |
-| **prism.rs** | Spectral weight optimizer | Jacobi eigendecomposition on 4×4 covariance matrix · anisotropic gain adaptation |
 | **query.rs** | Query analysis + refinement | Vagueness scoring · keyword extraction · intent classification |
 | **fragment.rs** | Core data structure | Content, metadata, scoring dimensions, skeleton, SimHash fingerprint |
-| **lib.rs** | PyO3 bridge + orchestrator | All modules exposed to Python · 93 tests |
+| **lib.rs** | PyO3 bridge + orchestrator | All modules exposed to Python · KKT-REINFORCE online learning · 113 tests |
 
 ### Python Layer
 
@@ -136,16 +138,106 @@ graph TD
     C3 --> Context
 ```
 
-Novel techniques:
-1. **Symbol-reachability slicing** — BFS through dep graph from query-relevant symbols (cf. NeurIPS 2025)
-2. **Submodular diversity selection** — diminishing returns per module (Nemhauser 1978, 1-1/e guarantee)
+Techniques:
+1. **Symbol-reachability slicing** — BFS through dep graph from query-relevant symbols
+2. **Submodular diversity selection** — diminishing returns per module (1−1/e guarantee)
 3. **PageRank centrality** — hub files get priority in L2 expansion
 4. **Entropy-gated budget allocation** — complex codebases get more L3 budget
 
+### IOS — Information-Optimal Selection
+
+Combines two algorithms in one greedy pass (`knapsack_sds.rs`):
+
+**Submodular Diversity Selection (SDS):**
+Standard knapsack assumes value(A ∪ B) = value(A) + value(B). Information has diminishing returns. SDS applies a SimHash-based diversity penalty to each candidate relative to what's already selected:
+
+```
+marginal_value(i, S) = base_value(i) × diversity_factor(simhash_i, {simhash_j : j ∈ S})
+```
+Greedy on `marginal_value / token_cost`. Guarantee: (1 − 1/e) ≈ 63% of optimal (Nemhauser-Wolsey-Fisher 1978).
+
+**Multi-Resolution Knapsack (MRK):**
+Each fragment has up to 3 representations with different value/cost tradeoffs:
+
+| Resolution | Information | Tokens |
+|---|---|---|
+| Full | 100% | 100% |
+| Skeleton (signatures only) | ~70% | ~20% |
+| Reference (path + name) | ~15% | ~2% |
+
+This is the Multiple Choice Knapsack Problem (MCKP). When budget is tight, IOS selects the lowest-cost representation that still fits.
+
+### KKT-REINFORCE: Online Weight Learning
+
+The scoring function is:
+```
+sᵢ = w_r·recency_i + w_f·frequency_i + w_s·semantic_i + w_e·entropy_i
+```
+
+Weights `w = [w_r, w_f, w_s, w_e]` are learned from session outcomes via a theoretically novel coupling between the forward selection and the backward policy gradient.
+
+#### Forward Pass — Exact KKT Dual Bisection
+
+The continuous relaxation of the 0/1 knapsack has the KKT condition:
+```
+p*ᵢ = σ((sᵢ − λ*·tokensᵢ) / τ)
+```
+where `λ*` is the Lagrange multiplier for the budget constraint, found via bisection:
+```
+g(λ) = Σᵢ σ((sᵢ − λ·tokensᵢ)/τ)·tokensᵢ − B = 0
+dg/dλ = −1/τ · Σᵢ pᵢ(1−pᵢ)·tokensᵢ² < 0   (strictly monotone → bisection converges)
+```
+Fragments are then sorted by `pᵢ` (= by reduced cost `sᵢ − λ*·tokensᵢ`) and greedily filled to hard budget. Complexity: **O(30·N)**.
+
+#### Backward Pass — REINFORCE with KKT Baseline
+
+After observing the outcome (success/failure → reward R):
+```
+∂E[R]/∂w_k = Σᵢ (actionᵢ − p*ᵢ) · R · p*ᵢ(1−p*ᵢ)/τ · featureᵢ_k
+```
+
+where `p*ᵢ = σ((sᵢ − λ*·tokensᵢ)/τ)` uses the **same λ* from the forward pass**. This baseline is:
+- **Per-item** (not a constant scalar) — calibrated to each fragment's budget cost
+- **Derived from the KKT condition** — not a learned value function
+- **Self-consistent** — forward and backward use the exact same probability
+
+The σ′(·/τ) = p(1-p)/τ term focuses gradient mass on fragments near the selection boundary (those with p ≈ 0.5), automatically handling credit assignment.
+
+#### PRISM: Natural Gradient Preconditioning
+
+The gradient is preconditioned by the inverse square root of the gradient covariance:
+```
+Δw = α · Q Λ⁻¹/² Qᵀ · g
+```
+where `C = Q Λ Qᵀ` is the Jacobi eigendecomposition of the 4×4 running gradient covariance. High-variance weight dimensions are damped; stable ones are amplified. This is exact (not approximate) because d=4 is small enough for direct Jacobi iteration.
+
+#### ADGT: Adaptive Dual Gap Temperature
+
+Replaces the ad-hoc `τ *= 0.995` annealing with a principled information-theoretic signal.
+
+The log-sum-exp dual of the budget constraint is:
+```
+D(λ*) = τ · Σᵢ log(1 + exp((sᵢ − λ*·cᵢ)/τ)) + λ*·B
+```
+The **duality gap** `G = D(λ*) − primal ∈ [0, τ·N·log(2)]`:
+- G → 0: weights converged, hard selection → lower τ
+- G → τ·N·log(2): all pᵢ = 0.5, maximum uncertainty → keep τ high
+
+Natural temperature: `τ_nat = G / (N·log(2))`. Self-regulating — no decay constant needed.
+
+#### PCNT: PRISM Condition-Number Temperature
+
+The spectral condition number `κ = √(λ_max/λ_min)` of the PRISM gradient covariance encodes weight-space uncertainty:
+- κ ≈ 1: well-conditioned weights, commit sharply (low τ)
+- κ >> 1: ill-conditioned, some dimensions noisy, stay soft (high τ)
+
+Final temperature: `τ = EMA(G/N · κ_norm, 0.90)`. No hyperparameters beyond τ_min/τ_max.
+
+ADGT and PCNT are orthogonal: ADGT asks "how far is the current selection from the continuous optimum?", PCNT asks "how uncertain are the learned weights themselves?"
+
 ### EGTC v2 (Entropy-Gap Temperature Calibration)
 
-Automatically derives the optimal LLM sampling temperature from information-theoretic properties of the selected context. Uses Fisher information scaling with 4 signals:
-
+Automatically derives the optimal LLM sampling temperature from context information-theoretic properties:
 ```
 τ = clip(τ_base + Σ signal_weights × [vagueness, entropy_gap, sufficiency, task_type])
 ```
@@ -156,12 +248,13 @@ Automatically derives the optimal LLM sampling temperature from information-theo
 2. **Task-aware preamble** — conditional hints from security findings, vagueness, and task type
 3. **Content deduplication** — MD5 hash-based dedup saves 10–20% in multi-turn sessions
 
+---
+
 ## Setup
 
 ### Cursor
 
 Add to `.cursor/mcp.json`:
-
 ```json
 {
   "mcpServers": {
@@ -173,71 +266,76 @@ Add to `.cursor/mcp.json`:
 ```
 
 ### Claude Code
-
 ```bash
 claude mcp add entroly -- entroly
 ```
 
 ### Prompt Compiler Proxy (any IDE)
-
-Change your IDE's API base URL to `http://localhost:9377`:
-
 ```bash
 entroly --proxy
 # or
 ENTROLY_PROXY_PORT=9377 python -m entroly.proxy
 ```
 
-Every LLM request is intercepted, optimized with the full pipeline (ECC + EGTC + APA + SAST), and forwarded transparently. < 10ms overhead.
+Every LLM request is intercepted, optimized with the full pipeline (ECC + IOS + EGTC + APA + SAST), and forwarded transparently. < 10ms overhead.
 
 ### Docker (cross-platform)
-
 ```bash
 docker pull ghcr.io/juyterman1000/entroly:latest
 docker run --rm -p 9377:9377 ghcr.io/juyterman1000/entroly:latest
 ```
+Multi-arch: `linux/amd64` and `linux/arm64` (Apple Silicon, AWS Graviton).
 
-Multi-arch image: `linux/amd64` and `linux/arm64` (Apple Silicon, AWS Graviton).
+---
 
 ## MCP Tools
 
 | Tool | Purpose |
 |------|---------|
 | `remember_fragment` | Store context with auto-dedup, entropy scoring, dep linking, criticality detection |
-| `optimize_context` | Select optimal context subset for a token budget (knapsack + ECC) |
+| `optimize_context` | Select optimal context subset for a token budget (IOS + ECC + KKT bisection) |
 | `recall_relevant` | Sub-linear semantic recall via multi-probe LSH |
-| `record_outcome` | Feed the Wilson-score feedback loop |
+| `record_outcome` | Feed the KKT-REINFORCE weight learning loop |
 | `explain_context` | Per-fragment scoring breakdown with sufficiency analysis |
-| `checkpoint_state` | Save full session state (gzipped JSON) |
+| `checkpoint_state` | Save full session state (gzipped JSON, includes λ*, dual_gap, PRISM covariance) |
 | `resume_state` | Restore from checkpoint |
 | `prefetch_related` | Predict and pre-load likely-needed context |
 | `get_stats` | Session statistics and cost savings |
 | `health_check` | Clone detection, dead symbols, god files, arch violations |
 
+---
+
 ## The Math
 
-### Multi-Dimensional Relevance Scoring
+### Multi-Dimensional Fragment Scoring
 
 ```
-r(f) = (w_rec · recency + w_freq · frequency + w_sem · semantic + w_ent · entropy)
-       / (w_rec + w_freq + w_sem + w_ent)
-       × feedback_multiplier
+sᵢ = w_r·recency + w_f·frequency + w_s·semantic + w_e·entropy
 ```
 
-- **Recency**: Ebbinghaus forgetting curve — `exp(-ln(2) × Δt / half_life)`
+Applied via soft sigmoid: `pᵢ = σ((sᵢ − λ*·tokensᵢ) / τ)` — items are weighted both by their intrinsic score and by their token cost relative to the budget dual variable.
+
+**Score components:**
+- **Recency**: Ebbinghaus forgetting curve — `exp(−ln(2) × Δt / half_life)`
 - **Frequency**: Normalized access count with spaced repetition boost
 - **Semantic similarity**: SimHash Hamming distance to query, normalized to [0, 1]
-- **Information density**: Shannon entropy + boilerplate + redundancy
+- **Information density**: Shannon entropy + boilerplate ratio + cross-fragment redundancy
 
-### Knapsack Context Selection
+### Context Selection — Two Paths
 
+**Soft path (τ ≥ 0.05):** KKT dual bisection — O(30·N):
 ```
-Maximize:   Σ r(fᵢ) · x(fᵢ)     for selected fragments
-Subject to: Σ c(fᵢ) · x(fᵢ) ≤ B  (token budget)
+Find λ* ≥ 0 s.t. Σᵢ σ((sᵢ − λ*·tokensᵢ)/τ)·tokensᵢ = B
+Sort by pᵢ = σ((sᵢ − λ*·tokensᵢ)/τ), greedy fill to hard budget
 ```
 
-- **N ≤ 2000**: Exact DP with budget quantization — O(N × 1000)
-- **N > 2000**: Greedy density sort — O(N log N), Dantzig 0.5-optimality guarantee
+**Hard path (τ < 0.05):** Exact 0/1 DP — O(N × 1000):
+```
+Maximize:   Σ sᵢ·xᵢ
+Subject to: Σ tokensᵢ·xᵢ ≤ B,   xᵢ ∈ {0, 1}
+```
+
+The soft path is the default during learning. As τ → 0 (via ADGT), probabilities converge to hard 0/1 selections and the DP fallback activates automatically.
 
 ### SAST Security Categories
 
@@ -252,39 +350,60 @@ Subject to: Σ c(fᵢ) · x(fᵢ) ≤ B  (token budget)
 | Insecure Crypto | CWE-327 | MD5/SHA1 for auth, weak key sizes |
 | Auth Flaws | CWE-287 | Hardcoded roles, missing auth checks |
 
+---
+
 ## Configuration
 
 ```python
 EntrolyConfig(
     default_token_budget=128_000,     # GPT-4 Turbo equivalent
     max_fragments=10_000,             # session fragment cap
-    weight_recency=0.30,              # scoring weights (sum to 1.0)
+    weight_recency=0.30,              # initial scoring weights (learned online)
     weight_frequency=0.25,
     weight_semantic_sim=0.25,
     weight_entropy=0.20,
     decay_half_life_turns=15,         # Ebbinghaus half-life
     enable_hierarchical_compression=True,  # 3-level ECC
+    enable_ios=True,                       # IOS (SDS + MRK)
+    enable_ios_diversity=True,             # submodular diversity penalty
+    enable_ios_multi_resolution=True,      # skeleton/reference fallback
     enable_temperature_calibration=True,   # EGTC v2
     enable_prompt_directives=True,         # APA preamble
     enable_security_scan=True,             # SAST
 )
 ```
 
+---
+
 ## References
 
+**Foundations used:**
 - Shannon (1948) — Information Theory
 - Charikar (2002) — SimHash
 - Ebbinghaus (1885) — Forgetting Curve
-- Weiser (1981) — Program Slicing
-- Nemhauser, Wolsey & Fisher (1978) — Submodular Maximization
+- Nemhauser, Wolsey & Fisher (1978) — Submodular Maximization (1−1/e guarantee)
+- Sviridenko (2004) — Submodular + Knapsack constraint
+- Minoux (1978) — Lazy greedy acceleration
+- Kellerer, Pferschy, Pisinger (2004) — Multiple Choice Knapsack (MCKP)
+- Boyd & Vandenberghe — Convex Optimization §5.2 (KKT duality, dual bisection)
+- Williams (1992) — REINFORCE policy gradient
 - Dantzig (1957) — Greedy Knapsack Approximation
 - Wilson (1927) — Score Confidence Intervals
+
+**Related work (RAG / context compression):**
 - LLMLingua (EMNLP 2023) — Perplexity-based Token Compression
 - LongLLMLingua (ACL 2024) — Query-aware Context Compression
 - RepoFormer (ICML 2024 Oral) — Selective Retrieval for Repo-Level Code
 - FILM-7B (NeurIPS 2024) — Structure-First Layout
 - CodeSage (ICLR 2024) — Code Embedding Representation Learning
 - SWE-bench (ICLR 2024) / SWE-agent (NeurIPS 2024) — Evaluation
+
+**Novel compositions (not in prior literature):**
+- KKT-REINFORCE: the dual variable λ* of the forward budget constraint as the per-item REINFORCE baseline (forward + backward use the same probability)
+- ADGT: duality gap G = D(λ*) − primal as a self-regulating temperature signal
+- PCNT: PRISM spectral condition number as a weight-uncertainty-aware temperature modulator
+
+---
 
 ## Part of the Ebbiforge Ecosystem
 

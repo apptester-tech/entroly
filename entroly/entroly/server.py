@@ -702,8 +702,7 @@ def create_mcp_server():
 
     mcp = FastMCP(
         "entroly",
-        version="0.1.0",
-        description=(
+        instructions=(
             "Information-theoretic context optimization for AI coding agents. "
             "Knapsack-optimal token budgeting, Shannon entropy scoring, "
             "SimHash deduplication, predictive pre-fetch, and checkpoint/resume."

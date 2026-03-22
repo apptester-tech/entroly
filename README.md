@@ -5,9 +5,9 @@
 <h1 align="center">Entroly</h1>
 
 <p align="center">
-  <b>Information-theoretic context compression for AI coding agents.</b>
+  <b>Context optimization for AI coding agents.</b>
   <br/>
-  <i>KKT-optimal knapsack selection + SimHash dedup + online RL — so your entire codebase fits in the context window at the right resolution, without the boilerplate and duplicates that inflate token cost.</i>
+  <i>Zero config. 78% fewer tokens. Your entire codebase — visible to your AI.</i>
 </p>
 
 <p align="center">

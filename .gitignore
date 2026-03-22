@@ -4,3 +4,11 @@ target/
 __pycache__/
 dist/
 *.whl
+
+# Scratch / debug artifacts
+test_out*.txt
+*.restored
+fix_readme.py
+update_readme_safe.py
+capture_metrics.py
+demo_value.py
